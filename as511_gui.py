@@ -10,6 +10,7 @@ and prevents any PLC actions until connected.
 import customtkinter as ctk
 from serial.tools import list_ports
 from tkinter import messagebox
+import time
 
 from as511_core import ExtendedAS511Client, AS511Client
 from views.download_gui import build_download_tab
@@ -89,11 +90,19 @@ class PLCToolApp(ctk.CTk):
         return self.client
 
     def _connect(self):
-        MAX_RETRIES = 3  # Define the maximum number of retries
-        for attempt in range(1, MAX_RETRIES + 1):
-            # Update the button to show the current connection attempt
+        """Try the STX→ACK handshake up to `Retries` times before giving up."""
+        max_retries = 1
+        try:
+            max_retries = int(self.retries_var.get())
+        except ValueError:
+            pass
+
+        last_error = None
+
+        for attempt in range(1, max_retries + 1):
+            # update UI for this attempt
             self.conn_btn.configure(
-                text=f"Connecting… (Attempt {attempt}/{MAX_RETRIES})",
+                text=f"Connecting ({attempt}/{max_retries})",
                 fg_color="#f0ad4e",
                 state="disabled"
             )
@@ -103,29 +112,40 @@ class PLCToolApp(ctk.CTk):
                 cli = self._make_client()
                 cli.__enter__()
                 ser = cli._ser
-                ser.flush_input()
-                ser.flush_output()
+                ser.flush_input(); ser.flush_output()
                 ser.write(bytes([AS511Client.STX]))
                 resp = ser.read(2)
                 cli.__exit__(None, None, None)
 
                 if resp == bytes([AS511Client.DLE, AS511Client.ACK]):
-                    # Success: Update button and set connected flag
+                    # success
                     self.connected = True
-                    self.conn_btn.configure(text="Online", fg_color="#5cb85c", state="disabled")
+                    self.conn_btn.configure(
+                        text="Online",
+                        fg_color="#5cb85c",
+                        state="disabled"
+                    )
                     return
                 else:
-                    raise RuntimeError(f"Unexpected reply: {resp!r}")
+                    last_error = RuntimeError(f"Unexpected reply: {resp!r}")
 
             except Exception as e:
-                self.logger.warning(f"Connection attempt {attempt} failed: {e}")
+                last_error = e
+            finally:
+                # ensure client is closed on failure
+                try:
+                    cli.__exit__(None, None, None)
+                except:
+                    pass
 
-            # If it's the last attempt, show an error message
-            if attempt == MAX_RETRIES:
-                self.connected = False
-                self.conn_btn.configure(text="Connect", fg_color="#d9534f", state="normal")
-                messagebox.showerror("Connection Error", f"Failed to connect after {MAX_RETRIES} attempts.\nError: {e}")
+            # small pause before retry (optional)
+            time.sleep(0.5)
 
+        # if we get here, all attempts failed
+        self.connected = False
+        self.conn_btn.configure(text="Connect", fg_color="#d9534f", state="normal")
+        messagebox.showerror("Connection Error",
+                             f"Failed after {max_retries} attempts:\n{last_error}")
     def _build_tabs(self):
         tabs = ctk.CTkTabview(self, width=980, height=580, corner_radius=8)
         tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0,10))
