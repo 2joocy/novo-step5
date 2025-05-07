@@ -27,7 +27,6 @@ jobs:
       - name: Compute release tag
         shell: pwsh
         run: |
-          # e.g. "2025-05-09_14-27"
           $tag = Get-Date -Format 'yyyy-MM-dd_HH-mm'
           echo "TAG=$tag" >> $env:GITHUB_ENV
 
@@ -52,6 +51,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: "${{ env.TAG }}.zip"
-          asset_name: "${{ env.TAG }}.zip"
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          asset_path: ${{ env.TAG }}.zip
+          asset_name: ${{ env.TAG }}.zip
           asset_content_type: application/zip
