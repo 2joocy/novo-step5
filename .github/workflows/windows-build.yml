@@ -2,7 +2,8 @@ name: Build Windows EXE
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build-exe:
@@ -28,8 +29,8 @@ jobs:
             --add-data "views;views" \
             as511_gui.py
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v2
         with:
           name: as511_tool.exe
           path: dist/as511_tool.exe
