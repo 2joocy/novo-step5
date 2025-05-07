@@ -1,0 +1,35 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller customtkinter pyserial
+
+      - name: Build .exe with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed \
+            --name as511_tool \
+            --add-data "views;views" \
+            as511_gui.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: as511_tool.exe
+          path: dist/as511_tool.exe
