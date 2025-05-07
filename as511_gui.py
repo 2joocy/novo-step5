@@ -1,151 +1,133 @@
 #!/usr/bin/env python3
 """
-as511_gui_modern.py
+as511_gui.py
 
-Modern Dark-Mode GUI for AS511 PLC Tool using CustomTkinter.
+Main launcher for the AS511 PLC Tool GUI.
+Includes a Connect button that toggles through Offline→Connecting→Online,
+and prevents any PLC actions until connected.
 """
 
-import threading, re, os
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
-from as511_core import ExtendedAS511Client, TYPE_MAP
+from serial.tools import list_ports
+from tkinter import messagebox
 
-# Appearance
+from as511_core import ExtendedAS511Client, AS511Client
+from views.download_gui import build_download_tab
+from views.upload_gui import build_upload_tab
+from views.compare_gui import build_compare_tab
+from views.record_gui import build_record_gui_tab
+
+# dark mode
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
+
 
 class PLCToolApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("AS511 PLC Tool")
-        self.geometry("800x600")
-        
-        # Connection Frame
-        conn = ctk.CTkFrame(self, corner_radius=12)
-        conn.pack(fill="x", padx=20, pady=10)
-        self._make_conn_controls(conn)
-        
-        # Tab View
-        tv = ctk.CTkTabview(self, width=860, height=480, corner_radius=8)
-        tv.pack(padx=20, pady=(0,20), expand=True)
-        for name in ("Download", "Upload", "Compare"):
-            tv.add(name)
-        
-        self._build_download_tab(tv.tab("Download"))
-        self._build_upload_tab(tv.tab("Upload"))
-        self._build_compare_tab(tv.tab("Compare"))
-        
+        self.geometry("1000x700")
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
         self.client = None
+        self.connected = False
 
-    def _make_conn_controls(self, parent):
-        labels = ["Device","Baud","Addr","Timeout","Retries"]
-        defaults = ["/dev/ttyUSB0","9600","2","1.0","3"]
-        vars_ = []
-        for i,(lbl,defv) in enumerate(zip(labels, defaults)):
-            ctk.CTkLabel(parent, text=lbl).grid(row=0, column=2*i, padx=(5,2))
-            var = ctk.StringVar(value=defv); vars_.append(var)
-            ctk.CTkEntry(parent, textvariable=var, width=80).grid(row=0, column=2*i+1, padx=(0,5))
-        self.device_var,self.baud_var,self.addr_var,self.timeout_var,self.retries_var = vars_
+        self._build_conn_frame()
+        self._build_tabs()
 
-    def _make_client(self):
-        if self.client: self.client.close()
+    def _build_conn_frame(self):
+        frm = ctk.CTkFrame(self, corner_radius=8, border_width=2, border_color="gray30")
+        frm.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        for i in range(14):
+            frm.grid_columnconfigure(i, weight=1)
+
+        # Device selector
+        ctk.CTkLabel(frm, text="Device:").grid(row=0, column=0, padx=5, sticky="w")
+        ports = [p.device for p in list_ports.comports()] or [f"COM{i}" for i in range(1,9)]
+        self.device_var = ctk.StringVar(value=ports[0])
+        self.device_combo = ctk.CTkComboBox(frm, values=ports, variable=self.device_var, width=200)
+        self.device_combo.grid(row=0, column=1, padx=5, sticky="ew")
+        ctk.CTkButton(frm, text="↻", width=30, command=self._refresh_ports)\
+            .grid(row=0, column=2, padx=5)
+
+        # Connect button / status
+        self.conn_btn = ctk.CTkButton(
+            frm,
+            text="Connect",
+            fg_color="#d9534f",      # red
+            hover_color="#c9302c",
+            command=self._connect
+        )
+        self.conn_btn.grid(row=0, column=3, padx=5)
+
+        # Serial parameters
+        opts = [("Baud","9600"), ("Addr","2"), ("Timeout","1.0"), ("Retries","3")]
+        for idx, (lbl, default) in enumerate(opts, start=3):
+            col = idx * 2
+            ctk.CTkLabel(frm, text=f"{lbl}:").grid(row=0, column=col, padx=5, sticky="e")
+            var = ctk.StringVar(value=default)
+            setattr(self, f"{lbl.lower()}_var", var)
+            ctk.CTkEntry(frm, textvariable=var, width=80)\
+                .grid(row=0, column=col+1, padx=5, sticky="w")
+
+    def _refresh_ports(self):
+        ports = [p.device for p in list_ports.comports()] or [f"COM{i}" for i in range(1,9)]
+        self.device_combo.configure(values=ports)
+        self.device_var.set(ports[0])
+
+    def _make_client(self) -> ExtendedAS511Client:
+        if self.client:
+            self.client.close()
         self.client = ExtendedAS511Client(
             device=self.device_var.get(),
             baudrate=int(self.baud_var.get()),
             plc_address=int(self.addr_var.get()),
             timeout=float(self.timeout_var.get()),
-            retries=int(self.retries_var.get()),
-            logger=None
+            retries=int(self.retries_var.get())
         )
+        return self.client
 
-    def _build_download_tab(self, frame):
-        self.dl_type = ctk.CTkEntry(frame, placeholder_text="Type ID (e.g. 0x08 or 8)")
-        self.dl_type.pack(padx=20, pady=(20,5), anchor="w")
-        self.dl_out  = ctk.CTkEntry(frame, placeholder_text="Select output directory", width=400)
-        self.dl_out.pack(padx=20, pady=(0,5), anchor="w")
-        ctk.CTkButton(frame, text="Browse…", command=self._browse_dl).pack(padx=20, anchor="w")
-        ctk.CTkButton(frame, text="Download", command=lambda: threading.Thread(target=self._dl,daemon=True).start())\
-            .pack(padx=20, pady=10, anchor="w")
-        self.dl_log = ctk.CTkTextbox(frame, width=800, height=200)
-        self.dl_log.pack(padx=20, pady=(0,10))
+    def _connect(self):
+        # show connecting
+        self.conn_btn.configure(text="Connecting…", fg_color="#f0ad4e", state="disabled")
+        self.update_idletasks()
 
-    def _browse_dl(self):
-        d = filedialog.askdirectory()
-        if d: self.dl_out.delete(0,"end"); self.dl_out.insert(0,d)
-
-    def _dl(self):
-        self._make_client(); self.client.open()
         try:
-            tid = int(self.dl_type.get(),0)
-            blks = self.client.download_blocks(tid, self.dl_out.get())
-            self.dl_log.insert("end", f"Downloaded blocks: {blks}\\n")
+            cli = self._make_client()
+            cli.__enter__()
+            ser = cli._ser
+            ser.flush_input(); ser.flush_output()
+            ser.write(bytes([AS511Client.STX]))
+            resp = ser.read(2)
+            cli.__exit__(None, None, None)
+
+            if resp == bytes([AS511Client.DLE, AS511Client.ACK]):
+                self.connected = True
+                self.conn_btn.configure(text="Online", fg_color="#5cb85c", state="disabled")
+            else:
+                raise RuntimeError(f"Unexpected reply: {resp!r}")
+
         except Exception as e:
-            messagebox.showerror("Error", str(e))
-        finally:
-            self.client.close()
+            self.connected = False
+            self.conn_btn.configure(text="Connect", fg_color="#d9534f", state="normal")
+            messagebox.showerror("Connection Error", str(e))
 
-    def _build_upload_tab(self, frame):
-        self.ul_type = ctk.CTkEntry(frame, placeholder_text="Type ID")
-        self.ul_type.pack(padx=20, pady=(20,5), anchor="w")
-        self.ul_in   = ctk.CTkEntry(frame, placeholder_text="Select input directory", width=400)
-        self.ul_in.pack(padx=20, pady=(0,5), anchor="w")
-        ctk.CTkButton(frame, text="Browse…", command=self._browse_ul).pack(padx=20, anchor="w")
-        ctk.CTkButton(frame, text="Upload", command=lambda: threading.Thread(target=self._ul,daemon=True).start())\
-            .pack(padx=20, pady=10, anchor="w")
-        self.ul_log = ctk.CTkTextbox(frame, width=800, height=200)
-        self.ul_log.pack(padx=20, pady=(0,10))
+    def _build_tabs(self):
+        tabs = ctk.CTkTabview(self, width=980, height=580, corner_radius=8)
+        tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0,10))
 
-    def _browse_ul(self):
-        d = filedialog.askdirectory()
-        if d: self.ul_in.delete(0,"end"); self.ul_in.insert(0,d)
+        for name in ("Download","Upload","Compare","Record"):
+            tabs.add(name)
+            frame = tabs.tab(name)
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_rowconfigure(4, weight=1)
 
-    def _ul(self):
-        self._make_client(); self.client.open()
-        try:
-            tid = int(self.ul_type.get(),0)
-            blks = self.client.upload_blocks(tid, self.ul_in.get())
-            self.ul_log.insert("end", f"Uploaded blocks: {blks}\\n")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-        finally:
-            self.client.close()
+        build_download_tab(self, tabs.tab("Download"))
+        build_upload_tab(self, tabs.tab("Upload"))
+        build_compare_tab(self, tabs.tab("Compare"))
+        build_record_gui_tab(self, tabs.tab("Record"))
 
-    def _build_compare_tab(self, frame):
-        self.cr_pat = ctk.CTkEntry(frame, placeholder_text="Type Regex (e.g. FB)")
-        self.cr_pat.pack(padx=20, pady=(20,5), anchor="w")
-        self.cr_base= ctk.CTkEntry(frame, placeholder_text="Baseline directory", width=400)
-        self.cr_base.pack(padx=20, pady=(0,5), anchor="w")
-        ctk.CTkButton(frame, text="Browse…", command=self._browse_cr).pack(padx=20, anchor="w")
-        ctk.CTkButton(frame, text="Compare", command=lambda: threading.Thread(target=self._cmp,daemon=True).start())\
-            .pack(padx=20, pady=10, anchor="w")
-        self.cr_log = ctk.CTkTextbox(frame, width=800, height=200)
-        self.cr_log.pack(padx=20, pady=(0,10))
-
-    def _browse_cr(self):
-        d = filedialog.askdirectory()
-        if d: self.cr_base.delete(0,"end"); self.cr_base.insert(0,d)
-
-    def _cmp(self):
-        self._make_client(); self.client.open()
-        try:
-            pat = re.compile(self.cr_pat.get(), re.IGNORECASE)
-            for tid,name in TYPE_MAP.items():
-                if not pat.search(name): continue
-                for bn in self.client.list_blocks(tid):
-                    fn = f"block_{tid:02X}_{bn}.bin"
-                    fp = os.path.join(self.cr_base.get(), fn)
-                    if not os.path.isfile(fp):
-                        self.cr_log.insert("end", f"{name}#{bn} missing\\n"); continue
-                    diff = self.client.compare_block(tid, bn, fp)
-                    if diff:
-                        self.cr_log.insert("end", f"=== DIFF {name}#{bn} ===\\n")
-                        self.cr_log.insert("end", "\\n".join(diff)+"\\n")
-                    else:
-                        self.cr_log.insert("end", f"{name}#{bn} OK\\n")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-        finally:
-            self.client.close()
 
 if __name__ == "__main__":
     app = PLCToolApp()
