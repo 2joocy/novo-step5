@@ -89,29 +89,42 @@ class PLCToolApp(ctk.CTk):
         return self.client
 
     def _connect(self):
-        # show connecting
-        self.conn_btn.configure(text="Connecting…", fg_color="#f0ad4e", state="disabled")
-        self.update_idletasks()
+        MAX_RETRIES = 3  # Define the maximum number of retries
+        for attempt in range(1, MAX_RETRIES + 1):
+            # Update the button to show the current connection attempt
+            self.conn_btn.configure(
+                text=f"Connecting… (Attempt {attempt}/{MAX_RETRIES})",
+                fg_color="#f0ad4e",
+                state="disabled"
+            )
+            self.update_idletasks()
 
-        try:
-            cli = self._make_client()
-            cli.__enter__()
-            ser = cli._ser
-            ser.flush_input(); ser.flush_output()
-            ser.write(bytes([AS511Client.STX]))
-            resp = ser.read(2)
-            cli.__exit__(None, None, None)
+            try:
+                cli = self._make_client()
+                cli.__enter__()
+                ser = cli._ser
+                ser.flush_input()
+                ser.flush_output()
+                ser.write(bytes([AS511Client.STX]))
+                resp = ser.read(2)
+                cli.__exit__(None, None, None)
 
-            if resp == bytes([AS511Client.DLE, AS511Client.ACK]):
-                self.connected = True
-                self.conn_btn.configure(text="Online", fg_color="#5cb85c", state="disabled")
-            else:
-                raise RuntimeError(f"Unexpected reply: {resp!r}")
+                if resp == bytes([AS511Client.DLE, AS511Client.ACK]):
+                    # Success: Update button and set connected flag
+                    self.connected = True
+                    self.conn_btn.configure(text="Online", fg_color="#5cb85c", state="disabled")
+                    return
+                else:
+                    raise RuntimeError(f"Unexpected reply: {resp!r}")
 
-        except Exception as e:
-            self.connected = False
-            self.conn_btn.configure(text="Connect", fg_color="#d9534f", state="normal")
-            messagebox.showerror("Connection Error", str(e))
+            except Exception as e:
+                self.logger.warning(f"Connection attempt {attempt} failed: {e}")
+
+            # If it's the last attempt, show an error message
+            if attempt == MAX_RETRIES:
+                self.connected = False
+                self.conn_btn.configure(text="Connect", fg_color="#d9534f", state="normal")
+                messagebox.showerror("Connection Error", f"Failed to connect after {MAX_RETRIES} attempts.\nError: {e}")
 
     def _build_tabs(self):
         tabs = ctk.CTkTabview(self, width=980, height=580, corner_radius=8)
