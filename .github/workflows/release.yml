@@ -36,11 +36,11 @@ jobs:
         mv dist/as511_gui release/as511_tool.exe
         zip -r release.zip release
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v2
       with:
-        name: my-artifact
-        path: path/to/artifacts
+        name: Executable
+        path: release.zip
 
   release:
     name: Create GitHub Release
