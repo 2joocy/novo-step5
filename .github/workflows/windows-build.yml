@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -23,11 +23,7 @@ jobs:
           pip install pyinstaller customtkinter pyserial
 
       - name: Build .exe with PyInstaller
-        run: |
-          pyinstaller --onefile --windowed \
-            --name as511_tool \
-            --add-data "views;views" \
-            as511_gui.py
+        run: pyinstaller --onefile --windowed --name as511_tool --add-data "views;views" as511_gui.py
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
