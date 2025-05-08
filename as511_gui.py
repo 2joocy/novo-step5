@@ -40,6 +40,11 @@ from views.record_gui import build_record_gui_tab
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
+BAUD_RATE = 9600
+PLC_ADDRESS = 2
+TIMEOUT = 2.0
+RETRIES = 3
+
 class PLCToolApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -59,10 +64,10 @@ class PLCToolApp(ctk.CTk):
     def _build_top_bar(self):
         # Initialize all required StringVars
         self.device_var = ctk.StringVar()
-        self.baud_var = ctk.StringVar(value="9600")
-        self.addr_var = ctk.StringVar(value="2")
-        self.timeout_var = ctk.StringVar(value="1.0")
-        self.retries_var = ctk.StringVar(value="3")
+        self.baud_var = ctk.StringVar(value=str(BAUD_RATE))
+        self.addr_var = ctk.StringVar(value=str(PLC_ADDRESS))
+        self.timeout_var = ctk.StringVar(value=str(TIMEOUT))
+        self.retries_var = ctk.StringVar(value=str(RETRIES))
 
         bar = ctk.CTkFrame(self, corner_radius=6, fg_color="#2b2b2b")
         bar.grid(row=0, column=0, sticky="ew", padx=8, pady=4)
