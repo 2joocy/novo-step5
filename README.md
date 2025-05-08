@@ -56,3 +56,7 @@ Replaces the DOS STEP 5 interface with a straightforward Python tool.
 ## License
 
 I dont know yet :)
+
+## References
+https://www.runmode.com/as511protocol_description.pdf
+https://as511.sourceforge.net/protokolle/protokoll.html
