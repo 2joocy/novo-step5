@@ -11,6 +11,10 @@ from as511_core import TYPE_MAP, NAME_TO_ID
 DEFAULT_INTERVAL = 1.0  # seconds
 
 def build_record_gui_tab(app, frame):
+    frame.grid_rowconfigure(2, weight=1)
+    # and let all columns grow if needed
+    for c in range(6):
+        frame.grid_columnconfigure(c, weight=1)
     # ── Dark-style for Treeview ──
     style = ttk.Style()
     style.theme_use("default")
@@ -65,7 +69,7 @@ def build_record_gui_tab(app, frame):
 
     # ── Live Values Table ──
     container = tk.Frame(frame, bg="#2b2b2b")
-    container.grid(row=2, column=0, columnspan=6, sticky="nsew", padx=padx, pady=pady)
+    container.grid(row=2, column=0, columnspan=6, sticky="nsew", padx=padx, pady=(pady, 0))
     container.grid_rowconfigure(0, weight=1)
     container.grid_columnconfigure(0, weight=1)
 
