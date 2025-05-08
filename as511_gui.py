@@ -3,22 +3,22 @@
 as511_gui.py
 
 Main launcher for the AS511 PLC Tool GUI.
-Includes a Connect button that toggles through Offline→Connecting→Online,
+Includes a Connect button that retries the STX→ACK handshake,
 and prevents any PLC actions until connected.
 """
 
+import time
 import customtkinter as ctk
 from serial.tools import list_ports
 from tkinter import messagebox
-import time
 
-from as511_core import ExtendedAS511Client, AS511Client
+from as511_core import ExtendedAS511Client
 from views.download_gui import build_download_tab
 from views.upload_gui import build_upload_tab
 from views.compare_gui import build_compare_tab
 from views.record_gui import build_record_gui_tab
 
-# dark mode
+# Dark-mode
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
@@ -27,7 +27,7 @@ class PLCToolApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("AS511 PLC Tool")
-        self.geometry("1280x800")
+        self.geometry("1000x700")
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -44,7 +44,8 @@ class PLCToolApp(ctk.CTk):
             frm.grid_columnconfigure(i, weight=1)
 
         # Device selector
-        ctk.CTkLabel(frm, text="Device:").grid(row=0, column=0, padx=5, sticky="w")
+        ctk.CTkLabel(frm, text="Device:")\
+            .grid(row=0, column=0, padx=5, sticky="w")
         ports = [p.device for p in list_ports.comports()] or [f"COM{i}" for i in range(1,9)]
         self.device_var = ctk.StringVar(value=ports[0])
         self.device_combo = ctk.CTkComboBox(frm, values=ports, variable=self.device_var, width=200)
@@ -66,7 +67,8 @@ class PLCToolApp(ctk.CTk):
         opts = [("Baud","9600"), ("Addr","2"), ("Timeout","1.0"), ("Retries","3")]
         for idx, (lbl, default) in enumerate(opts, start=3):
             col = idx * 2
-            ctk.CTkLabel(frm, text=f"{lbl}:").grid(row=0, column=col, padx=5, sticky="e")
+            ctk.CTkLabel(frm, text=f"{lbl}:")\
+                .grid(row=0, column=col, padx=5, sticky="e")
             var = ctk.StringVar(value=default)
             setattr(self, f"{lbl.lower()}_var", var)
             ctk.CTkEntry(frm, textvariable=var, width=80)\
@@ -90,8 +92,10 @@ class PLCToolApp(ctk.CTk):
         return self.client
 
     def _connect(self):
-        """Attempt STX→ACK up to Retries times, waiting ‘Timeout’ seconds between tries."""
-        # read user settings
+        """
+        Attempt STX→ACK handshake up to Retries times, waiting Timeout seconds between tries.
+        """
+        # read retries/count and timeout/delay
         try:
             max_retries = int(self.retries_var.get())
         except ValueError:
@@ -104,10 +108,10 @@ class PLCToolApp(ctk.CTk):
         last_error = None
 
         for attempt in range(1, max_retries + 1):
-            # update button to show progress
+            # update button to show attempt
             self.conn_btn.configure(
                 text=f"Connecting ({attempt}/{max_retries})",
-                fg_color="#f0ad4e",
+                fg_color="#f0ad4e",  # orange
                 state="disabled"
             )
             self.update_idletasks()
@@ -118,7 +122,7 @@ class PLCToolApp(ctk.CTk):
                 ser = cli._ser
                 ser.flush_input(); ser.flush_output()
                 ser.write(bytes([AS511Client.STX]))
-                # this read will block up to the serial timeout you configured
+                # blocks up to serial timeout
                 resp = ser.read(2)
                 cli.__exit__(None, None, None)
 
@@ -127,7 +131,7 @@ class PLCToolApp(ctk.CTk):
                     self.connected = True
                     self.conn_btn.configure(
                         text="Online",
-                        fg_color="#5cb85c",
+                        fg_color="#5cb85c",  # green
                         state="disabled"
                     )
                     return
@@ -136,7 +140,6 @@ class PLCToolApp(ctk.CTk):
 
             except Exception as e:
                 last_error = e
-                # ensure client is closed cleanly
                 try: cli.__exit__(None, None, None)
                 except: pass
 
@@ -151,11 +154,6 @@ class PLCToolApp(ctk.CTk):
             f"Failed after {max_retries} attempts:\n{last_error}"
         )
 
-        # if we get here, all attempts failed
-        self.connected = False
-        self.conn_btn.configure(text="Connect", fg_color="#d9534f", state="normal")
-        messagebox.showerror("Connection Error",
-                             f"Failed after {max_retries} attempts:\n{last_error}")
     def _build_tabs(self):
         tabs = ctk.CTkTabview(self, width=980, height=580, corner_radius=8)
         tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0,10))
