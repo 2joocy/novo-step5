@@ -58,9 +58,14 @@ class ExtendedAS511Client:
         self._ser = None
 
     def __enter__(self):
+        self._ser.rts = True
+        self._ser.dtr = True
         self._ser = serial.Serial(
             port=self.device,
             baudrate=self.baudrate,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_EVEN,
+            stopbits=serial.STOPBITS_ONE,
             timeout=self.timeout,
             write_timeout=self.timeout
         )
