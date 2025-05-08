@@ -65,7 +65,10 @@ class ExtendedAS511Client:
             parity=serial.PARITY_EVEN,
             stopbits=serial.STOPBITS_ONE,
             timeout=self.timeout,
-            write_timeout=self.timeout
+            write_timeout=self.timeout,
+            rtscts=False,   # Disable hardware RTS/CTS flow control
+            dsrdtr=False,   # Disable hardware DSR/DTR flow control
+            xonxoff=False   # Disable software (XON/X
         )
         self._ser.rts = True
         self._ser.dtr = True
