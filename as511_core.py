@@ -60,11 +60,14 @@ class TimeoutError(AS511Error): ...
 class SerialInitError(AS511Error): ...
 
 # -----------------------------------------------------------------------------
-# Core AS511 Client
+# Core AS511 Client - https://www.runmode.com/as511protocol_description.pdf
 # -----------------------------------------------------------------------------
 class AS511Client:
-    STX = 0x02; ETX = 0x03; DLE = 0x10
-    ACK = 0x06; NAK = 0x15
+    STX = 0x02; 
+    ETX = 0x03; 
+    DLE = 0x10
+    ACK = 0x06; 
+    NAK = 0x15
     CMD_READ  = 0x10
     CMD_WRITE = 0x11
     CMD_INFO  = 0x1A

@@ -27,7 +27,7 @@ class PLCToolApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("AS511 PLC Tool")
-        self.geometry("1000x700")
+        self.geometry("1280x800")
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -90,17 +90,21 @@ class PLCToolApp(ctk.CTk):
         return self.client
 
     def _connect(self):
-        """Try the STX→ACK handshake up to `Retries` times before giving up."""
-        max_retries = 1
+        """Attempt STX→ACK up to Retries times, waiting ‘Timeout’ seconds between tries."""
+        # read user settings
         try:
             max_retries = int(self.retries_var.get())
         except ValueError:
-            pass
+            max_retries = 1
+        try:
+            retry_delay = float(self.timeout_var.get())
+        except ValueError:
+            retry_delay = 1.0
 
         last_error = None
 
         for attempt in range(1, max_retries + 1):
-            # update UI for this attempt
+            # update button to show progress
             self.conn_btn.configure(
                 text=f"Connecting ({attempt}/{max_retries})",
                 fg_color="#f0ad4e",
@@ -114,6 +118,7 @@ class PLCToolApp(ctk.CTk):
                 ser = cli._ser
                 ser.flush_input(); ser.flush_output()
                 ser.write(bytes([AS511Client.STX]))
+                # this read will block up to the serial timeout you configured
                 resp = ser.read(2)
                 cli.__exit__(None, None, None)
 
@@ -131,15 +136,20 @@ class PLCToolApp(ctk.CTk):
 
             except Exception as e:
                 last_error = e
-            finally:
-                # ensure client is closed on failure
-                try:
-                    cli.__exit__(None, None, None)
-                except:
-                    pass
+                # ensure client is closed cleanly
+                try: cli.__exit__(None, None, None)
+                except: pass
 
-            # small pause before retry (optional)
-            time.sleep(0.5)
+            # wait before next retry
+            time.sleep(retry_delay)
+
+        # all retries failed
+        self.connected = False
+        self.conn_btn.configure(text="Connect", fg_color="#d9534f", state="normal")
+        messagebox.showerror(
+            "Connection Error",
+            f"Failed after {max_retries} attempts:\n{last_error}"
+        )
 
         # if we get here, all attempts failed
         self.connected = False
