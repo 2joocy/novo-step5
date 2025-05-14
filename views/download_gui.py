@@ -1,100 +1,81 @@
-import os
 import threading
+import re
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
-from as511_core import TYPE_MAP, NAME_TO_ID
-
-def build_download_tab(app, frame):
-    frame.grid_columnconfigure(1, weight=1)
-    padx, pady = 10, 5
-
-    # ── Block Type Selector ──
-    ctk.CTkLabel(frame, text="Block Type:")\
-        .grid(row=0, column=0, padx=padx, pady=(10, pady), sticky="w")
-    types = list(TYPE_MAP.values())
-    app.dl_type_var = ctk.StringVar(value=types[0])
-    app.dl_type_cb = ctk.CTkComboBox(
-        frame, values=types, variable=app.dl_type_var, width=120
-    )
-    app.dl_type_cb.grid(row=0, column=1, padx=padx, pady=(10, pady), sticky="w")
-
-    # ── Output Directory ──
-    ctk.CTkLabel(frame, text="Output Dir:")\
-        .grid(row=1, column=0, padx=padx, pady=pady, sticky="w")
-    app.dl_out = ctk.CTkEntry(frame)
-    app.dl_out.grid(row=1, column=1, padx=padx, pady=pady, sticky="ew")
-    ctk.CTkButton(frame, text="Browse…", command=lambda: _browse_dl(app))\
-        .grid(row=1, column=2, padx=5, pady=pady)
-
-    # ── Download Button ──
-    ctk.CTkButton(
-        frame,
-        text="Download",
-        command=lambda: threading.Thread(target=_do_download, args=(app,), daemon=True).start()
-    ).grid(row=2, column=0, columnspan=3, pady=(10, pady))
-
-    # ── Progress & Log ──
-    app.dl_progress = ctk.CTkProgressBar(frame)
-    app.dl_progress.grid(row=3, column=0, columnspan=3, sticky="ew", padx=padx, pady=(0,10))
-
-    app.dl_log = ctk.CTkTextbox(frame, state="disabled")
-    app.dl_log.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=padx, pady=pady)
+from tkinter import messagebox
+from tkinter import ttk
 
 
-def _browse_dl(app):
-    path = filedialog.askdirectory()
-    if path:
-        app.dl_out.delete(0, "end")
-        app.dl_out.insert(0, path)
+def build_download_tab(app, container):
+    """
+    Builds the Download tab UI with a Treeview for multiple block reads.
 
+    Parameters:
+    - app: reference to the main PLCToolApp instance
+    - container: the CTkFrame for this tab
+    """
+    # Controls frame
+    ctrl = ctk.CTkFrame(container)
+    ctrl.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+    ctk.CTkLabel(ctrl, text="Block ID (e.g. DB65 or DB65.1):").grid(row=0, column=0, padx=(0,5))
+    block_entry = ctk.CTkEntry(ctrl)
+    block_entry.grid(row=0, column=1, sticky="ew", padx=(0,5))
+    read_btn = ctk.CTkButton(ctrl, text="Read", width=80)
+    read_btn.grid(row=0, column=2)
+    ctrl.grid_columnconfigure(1, weight=1)
 
-def _do_download(app):
-    # Guard: must be connected first
-    if not app.connected:
-        messagebox.showerror("Error", "Not connected to PLC")
-        return
+    # Summary label
+    summary_label = ctk.CTkLabel(container, text="", anchor="w")
+    summary_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0,5))
 
-    # Prepare UI
-    app.dl_log.configure(state="normal")
-    app.dl_log.delete("1.0", "end")
-    app.dl_progress.set(0)
+    # Treeview frame for results
+    tree_frame = ctk.CTkFrame(container)
+    tree_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+    container.grid_rowconfigure(2, weight=1)
+    container.grid_columnconfigure(0, weight=1)
 
-    try:
-        # Map block type name → ID
-        type_name = app.dl_type_var.get()
-        tid = NAME_TO_ID.get(type_name)
-        if tid is None:
-            messagebox.showerror("Download Error", f"Unknown block type: {type_name}")
+    # Treeview setup: columns for Block, Index, Decimal, Hex
+    cols = ("Block", "Index", "Decimal", "Hex")
+    tree = ttk.Treeview(tree_frame, columns=cols, show="headings")
+    for col in cols:
+        tree.heading(col, text=col)
+        tree.column(col, anchor="center", width=80)
+
+    # Scrollbar
+    vscroll = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+    tree.configure(yscrollcommand=vscroll.set)
+
+    # Layout
+    tree.grid(row=0, column=0, sticky="nsew")
+    vscroll.grid(row=0, column=1, sticky="ns")
+    tree_frame.grid_rowconfigure(0, weight=1)
+    tree_frame.grid_columnconfigure(0, weight=1)
+
+    def on_read():
+        if not app.connected:
+            messagebox.showwarning("Not connected", "Please connect to a device first.")
             return
+        blk_id = block_entry.get().strip()
+        summary_label.configure(text="Reading...")
 
-        out_dir = app.dl_out.get().strip()
-        if not out_dir:
-            messagebox.showerror("Download Error", "Please select an output directory")
-            return
-        os.makedirs(out_dir, exist_ok=True)
+        def task():
+            try:
+                res = app.client.read_block(blk_id)
+                # Update summary
+                summary = f"Block: {res['block']}  Length: {len(res['values'])} bytes"
+                summary_label.after(0, lambda: summary_label.configure(text=summary))
+                # Insert rows into treeview
+                for idx, val in enumerate(res['values']):
+                    tree.after(0, lambda b=res['block'], i=idx, v=val: tree.insert(
+                        "", "end", values=(b, i, v, f"0x{v:02X}")))
+            except Exception as e:
+                summary_label.after(0, lambda: summary_label.configure(text=str(e)))
 
-        # Perform download
-        with app._make_client() as client:
-            blocks = list(client.list_blocks(tid))
-            total = len(blocks)
-            if total == 0:
-                app.dl_log.insert("end", f"No {type_name} blocks found on PLC.\n")
-            else:
-                for idx, bn in enumerate(blocks, start=1):
-                    _, _, lw = client.info_block(bn)
-                    data = client.read_block(tid, bn, lw * 2)
-                    filename = f"block_{type_name}_{bn}.bin"
-                    filepath = os.path.join(out_dir, filename)
-                    with open(filepath, "wb") as f:
-                        f.write(data)
-                    app.dl_progress.set(idx/total)
-                    app.dl_log.insert("end", f"Saved {filename}\n")
+        threading.Thread(target=task, daemon=True).start()
 
-        app.dl_log.insert("end", "Download complete.\n")
+    read_btn.configure(command=on_read)
 
-    except Exception as e:
-        messagebox.showerror("Download Error", str(e))
-
-    finally:
-        app.dl_progress.set(0)
-        app.dl_log.configure(state="disabled")
+    return {
+        'block_entry': block_entry,
+        'summary_label': summary_label,
+        'tree': tree
+    }

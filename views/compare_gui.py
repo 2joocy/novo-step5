@@ -1,139 +1,95 @@
-# views/compare_gui.py
-
 import threading
 import re
-import os
-import difflib
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
-from as511_core import TYPE_MAP, ExtendedAS511Client
-
-def build_compare_tab(app, frame):
-    frame.grid_columnconfigure(1, weight=1)
-    padx, pady = 10, 5
-
-    # ── Block Type Regex ──
-    ctk.CTkLabel(frame, text="Block Type Regex:")\
-        .grid(row=0, column=0, padx=padx, pady=(10, pady), sticky="w")
-    app.cr_pat = ctk.CTkEntry(frame, placeholder_text="e.g. FB|DB")
-    app.cr_pat.grid(row=0, column=1, padx=padx, pady=(10, pady), sticky="ew")
-
-    # ── Baseline Directory ──
-    ctk.CTkLabel(frame, text="Baseline Dir:")\
-        .grid(row=1, column=0, padx=padx, pady=pady, sticky="w")
-    app.cr_base = ctk.CTkEntry(frame)
-    app.cr_base.grid(row=1, column=1, padx=padx, pady=pady, sticky="ew")
-    ctk.CTkButton(frame, text="Browse…", command=lambda: browse_cr(app))\
-        .grid(row=1, column=2, padx=5, pady=pady)
-
-    # ── Compare Button ──
-    app.cr_btn = ctk.CTkButton(
-        frame,
-        text="Compare",
-        command=lambda: threading.Thread(target=_do_compare, args=(app,), daemon=True).start()
-    )
-    app.cr_btn.grid(row=2, column=0, columnspan=3, pady=(10, pady))
-
-    # ── Progress Bar ──
-    app.cr_progress = ctk.CTkProgressBar(frame)
-    app.cr_progress.grid(row=3, column=0, columnspan=3, sticky="ew", padx=padx, pady=(0,10))
-
-    # ── Log ──
-    app.cr_log = ctk.CTkTextbox(frame, state="disabled")
-    app.cr_log.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=padx, pady=pady)
+from tkinter import messagebox
+from tkinter import ttk
 
 
-def browse_cr(app):
-    path = filedialog.askdirectory()
-    if path:
-        app.cr_base.delete(0, "end")
-        app.cr_base.insert(0, path)
+def build_compare_tab(app, container):
+    """
+    Builds the Compare tab UI with a Treeview for multiple block type comparisons.
 
+    Parameters:
+    - app: reference to the main PLCToolApp instance
+    - container: the CTkFrame for this tab
+    """
+    # Controls frame
+    ctrl = ctk.CTkFrame(container)
+    ctrl.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+    ctk.CTkLabel(ctrl, text="Block ID (e.g. DB65 or DB65.1):").grid(row=0, column=0, padx=(0,5))
+    block_entry = ctk.CTkEntry(ctrl)
+    block_entry.grid(row=0, column=1, sticky="ew", padx=(0,5))
+    ctk.CTkLabel(ctrl, text="Expected Type ID:").grid(row=0, column=2, padx=(10,5))
+    type_entry = ctk.CTkEntry(ctrl, width=80)
+    type_entry.grid(row=0, column=3, sticky="ew", padx=(0,5))
+    compare_btn = ctk.CTkButton(ctrl, text="Compare", width=100)
+    compare_btn.grid(row=0, column=4)
+    ctrl.grid_columnconfigure(1, weight=1)
+    ctrl.grid_columnconfigure(3, weight=1)
 
-def _do_compare(app):
-    # Guard: must be connected
-    if not app.connected:
-        messagebox.showerror("Error", "Not connected to PLC")
-        return
+    # Summary label
+    summary_label = ctk.CTkLabel(container, text="", anchor="w")
+    summary_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0,5))
 
-    # Prepare UI
-    app.cr_btn.configure(state="disabled")
-    app.cr_log.configure(state="normal")
-    app.cr_log.delete("1.0", "end")
-    app.cr_progress.set(0)
+    # Treeview frame for results
+    tree_frame = ctk.CTkFrame(container)
+    tree_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+    container.grid_rowconfigure(2, weight=1)
+    container.grid_columnconfigure(0, weight=1)
 
-    # Validate regex
-    pat_text = app.cr_pat.get().strip()
-    if not pat_text:
-        messagebox.showerror("Compare Error", "Enter a block type regex")
-        app.cr_btn.configure(state="normal")
-        app.cr_log.configure(state="disabled")
-        return
-    try:
-        pat = re.compile(pat_text, re.IGNORECASE)
-    except re.error as e:
-        messagebox.showerror("Compare Error", f"Invalid regex: {e}")
-        app.cr_btn.configure(state="normal")
-        app.cr_log.configure(state="disabled")
-        return
+    # Treeview setup: columns for Block, Expected, Actual, Match
+    cols = ("Block", "Expected", "Actual", "Match")
+    tree = ttk.Treeview(tree_frame, columns=cols, show="headings")
+    for col in cols:
+        tree.heading(col, text=col)
+        tree.column(col, anchor="center")
 
-    # Validate baseline directory
-    base_dir = app.cr_base.get().strip()
-    if not os.path.isdir(base_dir):
-        messagebox.showerror("Compare Error", "Select a valid baseline directory")
-        app.cr_btn.configure(state="normal")
-        app.cr_log.configure(state="disabled")
-        return
+    # Scrollbar
+    vscroll = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+    tree.configure(yscrollcommand=vscroll.set)
 
-    # Compute total blocks to compare
-    with app._make_client() as client:
-        total = sum(
-            len(list(client.list_blocks(tid)))
-            for tid, name in TYPE_MAP.items()
-            if pat.search(name)
-        )
+    # Layout
+    tree.grid(row=0, column=0, sticky="nsew")
+    vscroll.grid(row=0, column=1, sticky="ns")
+    tree_frame.grid_rowconfigure(0, weight=1)
+    tree_frame.grid_columnconfigure(0, weight=1)
 
-    if total == 0:
-        app.cr_log.insert("end", "No matching block types found on PLC.\n")
-    else:
-        done = 0
-        with app._make_client() as client:
-            for tid, name in TYPE_MAP.items():
-                if not pat.search(name):
-                    continue
-                blocks = list(client.list_blocks(tid))
-                if not blocks:
-                    app.cr_log.insert("end", f"No {name} blocks on PLC.\n")
-                    continue
-                for bn in blocks:
-                    done += 1
-                    app.cr_progress.set(done / total)
+    def on_compare():
+        if not app.connected:
+            messagebox.showwarning("Not connected", "Please connect to a device first.")
+            return
+        blk_id = block_entry.get().strip()
+        exp_text = type_entry.get().strip()
+        if not exp_text.isdigit():
+            summary_label.configure(text="Expected Type ID must be an integer.")
+            return
+        exp_type = int(exp_text)
+        summary_label.configure(text="Comparing...")
 
-                    # Baseline file path
-                    fn = f"block_{name}_{bn}.bin"
-                    fp = os.path.join(base_dir, fn)
-                    if not os.path.isfile(fp):
-                        app.cr_log.insert("end", f"{name}#{bn} missing baseline\n")
-                        continue
+        def task():
+            try:
+                actual_ok = app.client.compare_block(blk_id, exp_type)
+                # After calling compare, fetch actual type via info_block for display
+                info = app.client.info_block(blk_id)
+                actual_type = info.get('type_id')
+                match = "Yes" if actual_ok else "No"
+                # Update summary
+                summary = f"Block {blk_id}: expected {exp_type}, actual {actual_type}, match: {match}"
+                summary_label.after(0, lambda: summary_label.configure(text=summary))
+                # Insert into tree
+                tree.after(0, lambda: tree.insert(
+                    "", "end", values=(blk_id, exp_type, actual_type, match)
+                ))
+            except Exception as e:
+                summary_label.after(0, lambda: summary_label.configure(text=str(e)))
 
-                    # Read and diff
-                    _, _, lw = client.info_block(bn)
-                    remote = client.read_block(tid, bn, lw * 2)
-                    local = open(fp, "rb").read()
-                    a = [f"{b:02X}" for b in local]
-                    b = [f"{b:02X}" for b in remote]
-                    diffs = list(difflib.unified_diff(
-                        a, b,
-                        fromfile="baseline", tofile="online",
-                        lineterm=""
-                    ))
-                    if diffs:
-                        app.cr_log.insert("end", f"=== DIFF {name}#{bn} ===\n")
-                        app.cr_log.insert("end", "\n".join(diffs) + "\n")
-                    else:
-                        app.cr_log.insert("end", f"{name}#{bn} OK\n")
+        threading.Thread(target=task, daemon=True).start()
 
-    # Finalize UI
-    app.cr_progress.set(0)
-    app.cr_log.configure(state="disabled")
-    app.cr_btn.configure(state="normal")
+    compare_btn.configure(command=on_compare)
+
+    return {
+        'block_entry': block_entry,
+        'type_entry': type_entry,
+        'summary_label': summary_label,
+        'tree': tree
+    }
