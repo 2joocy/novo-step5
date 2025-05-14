@@ -49,8 +49,6 @@ class PLCToolApp(ctk.CTk):
         # Connect and Scan buttons
         self.connect_btn = ctk.CTkButton(frame, text="Connect", fg_color="#d9534f", command=self._connect)
         self.connect_btn.grid(row=0, column=2, padx=5)
-        self.scan_btn = ctk.CTkButton(frame, text="Scan", command=self._start_scan)
-        self.scan_btn.grid(row=0, column=6, padx=5)
 
         # Settings entries
         self.addr_entry = ctk.CTkEntry(frame, width=50, placeholder_text="Addr")
